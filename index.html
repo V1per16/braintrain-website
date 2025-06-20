@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <title>Memory Number Order Game with Leaderboard</title>
+</head>
+<body>
+  <button id="theme-toggle">Toggle Theme (Light)</button>
+  <h2>Memory Number Order Game</h2>
+  <div id="userInfo">
+    Logged in as: <span id="usernameDisplay"></span> | 
+    <a href="profile.html">Profile</a> | 
+    <button id="logoutBtn">Logout</button>
+  </div>
+
+  <div class="controls" id="gameControls">
+    <label>Numbers (min 3 / max 9): <input type="number" id="numberCountInput" min="3" max="9" value="5"></label>
+    <label>Rounds (min 3 / max 50): <input type="number" id="amountRoundsInput" min="3" max="50" value="10"></label>
+    <label>Auto-hide (ms): <input type="number" id="hideDelayInput" min="0" value="0"></label>
+    <button id="startBtn">Start Game</button>
+    <button id="cancelBtn">Cancel</button>
+  </div>
+
+  <div id="roundIndicator">Round: 0 / ?</div>
+  <div id="timerDisplay">Time: 00:00</div>
+  <div class="grid" id="grid"></div>
+  <button id="nextRoundBtn" style="display:none;">Next Round</button>
+
+  <div id="resultScreen">
+    <h3>Game Over!</h3>
+    <p id="resultStats"></p>
+    <input type="text" id="usernameInput" placeholder="Your name" style="display: none;" />
+    <button id="submitScoreBtn">Submit Score</button>
+  </div>
+
+  <div id="leaderboard">
+    <h3>Leaderboard</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>(Success / Total)</th>
+          <th>Time (s)</th>
+          <th>Numbers</th>
+          <th>Auto-hide (ms)</th>
+          <th>Score</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody id="leaderboardBody">
+        <tr><td colspan="7">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+<script>
+const grid = document.getElementById('grid');
+const numberCountInput = document.getElementById('numberCountInput');
+const amountRoundsInput = document.getElementById('amountRoundsInput');
+const hideDelayInput = document.getElementById('hideDelayInput');
+const roundIndicator = document.getElementById('roundIndicator');
+const timerDisplay = document.getElementById('timerDisplay');
+const startBtn = document.getElementById('startBtn');
+const cancelBtn = document.getElementById('cancelBtn');
+const nextRoundBtn = document.getElementById('nextRoundBtn');
+const resultScreen = document.getElementById('resultScreen');
+const resultStats = document.getElementById('resultStats');
+const usernameInput = document.getElementById('usernameInput');
+const submitScoreBtn = document.getElementById('submitScoreBtn');
+const leaderboardBody = document.getElementById('leaderboardBody');
+const usernameDisplay = document.getElementById('usernameDisplay');
+const logoutBtn = document.getElementById('logoutBtn');
+const themeToggle = document.getElementById('theme-toggle');
+const gridSize = 25;
+
+let numberOrder = [], sortedNumbers = [], currentIndex = 0;
+let gameActive = false, currentRound = 0;
+let autoHideUsed = false;
+let hideDelay = 0;
+let roundResults = [];
+let startTime = null;
+let timerInterval = null;
+
+// Check login status
+if (!localStorage.getItem('username')) {
+  window.location.href = 'login.html';
+} else {
+  usernameDisplay.textContent = localStorage.getItem('username');
+}
+
+// Theme toggle
+themeToggle.addEventListener('click', () => {
+  const currentTheme = document.documentElement.getAttribute('data-theme');
+  document.documentElement.setAttribute('data-theme', currentTheme === 'dark' ? 'light' : 'dark');
+  themeToggle.textContent = `Toggle Theme (${currentTheme === 'dark' ? 'Dark' : 'Light'})`;
+});
+
+// Logout
+logoutBtn.addEventListener('click', () => {
+  localStorage.removeItem('username');
+  window.location.href = 'login.html';
+});
+
+// Initialize grid
+for (let i = 0; i < gridSize; i++) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  cell.dataset.index = i;
+  grid.appendChild(cell);
+}
+
+function updateRoundDisplay() {
+  const totalRounds = +amountRoundsInput.value;
+  roundIndicator.textContent = `Round: ${currentRound} / ${totalRounds}`;
+}
+
+function updateTimer() {
+  if (!startTime || !gameActive) return;
+  const elapsed = Math.floor((Date.now() - startTime) / 1000);
+  const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
+  const seconds = (elapsed % 60).toString().padStart(2, '0');
+  timerDisplay.textContent = `Time: ${minutes}:${seconds}`;
+}
+
+function resetGrid() {
+  for (const cell of grid.children) {
+    cell.textContent = '';
+    cell.dataset.number = '';
+    cell.className = 'cell';
+  }
+  numberOrder = []; sortedNumbers = []; currentIndex = 0;
+  gameActive = false;
+  autoHideUsed = false;
+  nextRoundBtn.style.display = 'none';
+  clearInterval(timerInterval);
+  timerDisplay.textContent = 'Time: 00:00';
+}
+
+function generateUniqueNumbers(count) {
+  const pool = Array.from({length: 9}, (_, i) => i + 1);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, count);
+}
+
+function setupRound(count, delay) {
+  if (count < 3 || count > 9) {
+    alert('Number count must be between 3 and 9.');
+    return;
+  }
+  resetGrid();
+  const indices = [...Array(gridSize).keys()];
+  const randomNumbers = generateUniqueNumbers(count);
+  numberOrder = [];
+
+  for (let i = 0; i < count; i++) {
+    const index = indices.splice(Math.floor(Math.random() * indices.length), 1)[0];
+    numberOrder.push({ index, number: randomNumbers[i] });
+  }
+
+  sortedNumbers = [...numberOrder].sort((a, b) => a.number - b.number);
+
+  numberOrder.forEach(item => {
+    const cell = grid.children[item.index];
+    cell.textContent = item.number;
+    cell.dataset.number = item.number;
+    cell.classList.add('with-number');
+  });
+
+  if (delay > 0) {
+    autoHideUsed = true;
+    setTimeout(() => {
+      numberOrder.forEach(item => {
+        grid.children[item.index].classList.add('hidden');
+      });
+    }, delay);
+  }
+
+  gameActive = true;
+  timerInterval = setInterval(updateTimer, 1000);
+}
+
+grid.addEventListener('click', (e) => {
+  if (!gameActive) return;
+  const cell = e.target;
+  if (!cell.classList.contains('with-number') || !cell.dataset.number) return;
+  const clickedIndex = +cell.dataset.index;
+  const clickedNumber = +cell.dataset.number;
+  const expected = sortedNumbers[currentIndex];
+
+  if (clickedNumber === expected.number && clickedIndex === expected.index) {
+    if (!autoHideUsed && currentIndex === 0) {
+      numberOrder.forEach((item) => {
+        if (item.index !== clickedIndex)
+          grid.children[item.index].classList.add('hidden');
+      });
+    }
+    cell.classList.remove('hidden');
+    cell.classList.add('correct');
+    currentIndex++;
+
+    if (currentIndex === sortedNumbers.length) {
+      roundResults.push(true);
+      finishRound();
+    }
+  } else {
+    cell.classList.remove('hidden');
+    cell.classList.add('wrong');
+    roundResults.push(false);
+    finishRound();
+  }
+});
+
+function finishRound() {
+  gameActive = false;
+  clearInterval(timerInterval);
+  updateTimer();
+  const totalRounds = +amountRoundsInput.value;
+  if (currentRound < totalRounds) {
+    nextRoundBtn.style.display = 'inline-block';
+  } else {
+    showResults();
+  }
+}
+
+function startGame() {
+  const numbers = +numberCountInput.value;
+  const rounds = +amountRoundsInput.value;
+  if (numbers < 3 || numbers > 9) {
+    alert('Number count must be between 3 and 9.');
+    return;
+  }
+  if (rounds < 3 || rounds > 50) {
+    alert('Rounds must be between 3 and 50.');
+    return;
+  }
+  hideDelay = Math.max(0, +hideDelayInput.value);
+  roundResults = [];
+  currentRound = 1;
+  startTime = Date.now();
+  updateRoundDisplay();
+  setupRound(numbers, hideDelay);
+  resultScreen.style.display = 'none';
+}
+
+function nextRound() {
+  currentRound++;
+  updateRoundDisplay();
+  setupRound(+numberCountInput.value, hideDelay);
+}
+
+function showResults() {
+  const duration = Math.round((Date.now() - startTime) / 1000);
+  const success = roundResults.filter(r => r).length;
+  const numbers = +numberCountInput.value;
+  const totalRounds = +amountRoundsInput.value;
+  const hideDelay = Math.max(0, +hideDelayInput.value);
+
+  // Calculate individual components
+  const successPoints = (success / totalRounds) * 1000;
+  const numberPoints = ((numbers - 3) / 6) * 1000;
+  const expectedTime = numbers * totalRounds * 5;
+  const timePoints = duration < expectedTime ? 1000 * (1 - (duration / expectedTime)) : 0;
+  const autoHidePoints = hideDelay >= 1000 
+  ? Math.max(0, 1000 - ((hideDelay - 1000) / 100) * 100)
+  : Math.min(1000, 1000 * Math.pow(1.5, Math.floor((1000 - hideDelay) / 10) / 100));
+  const roundPoints = ((totalRounds - 3) / 47) * 1000;
+
+  // Total score (weighted average of components)
+  const score = Math.round(
+    (successPoints * 0.2) +
+    (numberPoints * 0.2) +
+    (timePoints * 0.2) +
+    (autoHidePoints * 0.2) +
+    (roundPoints * 0.2)
+  );
+
+  resultScreen.style.display = 'block';
+  resultStats.innerHTML = `
+    Time: <strong>${duration}s</strong><br>
+    Auto-hide: <strong>${hideDelay}ms</strong><br>
+    Numbers: <strong>${numbers}</strong><br>
+    Success: ${success}/${totalRounds}<br>
+    Score: <strong>${score}</strong>
+  `;
+}
+
+function cancelGame() {
+  resetGrid();
+  resultScreen.style.display = 'none';
+  roundResults = [];
+  currentRound = 0;
+  updateRoundDisplay();
+  startTime = null;
+}
+
+submitScoreBtn.addEventListener('click', () => {
+  const username = localStorage.getItem('username');
+  const duration = Math.round((Date.now() - startTime) / 1000);
+  const success = roundResults.filter(r => r).length;
+  const numbers = +numberCountInput.value;
+  const totalRounds = +amountRoundsInput.value;
+  const hideDelay = Math.max(0, +hideDelayInput.value);
+
+  // Calculate individual components
+  const successPoints = (success / totalRounds) * 1000;
+  const numberPoints = ((numbers - 3) / 6) * 1000;
+  const expectedTime = numbers * totalRounds * 5;
+  const timePoints = duration < expectedTime ? 1000 * (1 - (duration / expectedTime)) : 0;
+  const autoHidePoints = hideDelay === 0 ? 1000 : Math.max(0, 1000 * (numbers * 0.8) - (hideDelay / 100) * 100);
+  const roundPoints = ((totalRounds - 3) / 47) * 1000;
+
+  // Total score (weighted average of components)
+  const score = Math.round(
+    (successPoints * 0.2) +
+    (numberPoints * 0.2) +
+    (timePoints * 0.2) +
+    (autoHidePoints * 0.2) +
+    (roundPoints * 0.2)
+  );
+
+  const scoreData = {
+    username,
+    success,
+    total: totalRounds,
+    time: duration,
+    numbers,
+    autoHide: hideDelay,
+    score,
+    date: new Date().toISOString()
+  };
+
+  // Save to both leaderboard and stats
+  Promise.all([
+    fetch('/submit-score', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(scoreData)
+    }),
+    fetch('/save-stats', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(scoreData)
+    })
+  ])
+  .then(([res1, res2]) => {
+    if (!res1.ok || !res2.ok) throw new Error('Error submitting score or stats');
+    return Promise.all([res1.json(), res2.json()]);
+  })
+  .then(() => {
+    alert('Score submitted!');
+    cancelGame();
+    loadLeaderboard();
+  })
+  .catch(err => {
+    alert('Failed to submit score: ' + err.message);
+  });
+});
+
+startBtn.addEventListener('click', () => {
+  cancelGame();
+  startGame();
+});
+
+cancelBtn.addEventListener('click', () => {
+  cancelGame();
+});
+
+nextRoundBtn.addEventListener('click', () => {
+  nextRoundBtn.style.display = 'none';
+  nextRound();
+});
+
+function loadLeaderboard() {
+  leaderboardBody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
+  fetch('/leaderboard')
+    .then(res => res.json())
+    .then(data => {
+      if (!Array.isArray(data) || data.length === 0) {
+        leaderboardBody.innerHTML = '<tr><td colspan="7">No scores yet...</td></tr>';
+        return;
+      }
+
+      leaderboardBody.innerHTML = data
+        .sort((a, b) => b.score - a.score)
+        .map(entry => `
+          <tr>
+            <td>${escapeHtml(entry.username)}</td>
+            <td>${entry.success}/${entry.total}</td>
+            <td>${entry.time}s</td>
+            <td>${entry.numbers}</td>
+            <td>${entry.autoHide}ms</td>
+            <td>${entry.score || 0}</td>
+            <td>${new Date(entry.date).toLocaleDateString()}</td>
+          </tr>
+        `).join('');
+    })
+    .catch(() => {
+      leaderboardBody.innerHTML = '<tr><td colspan="7">Failed to load leaderboard.</td></tr>';
+    });
+}
+
+function escapeHtml(text) {
+  return text.replace(/[&<>"']/g, function(m) {
+    const map = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    };
+    return map[m];
+  });
+}
+
+loadLeaderboard();
+updateRoundDisplay();
+</script>
+</body>
+</html>

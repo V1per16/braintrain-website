@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <title>Login - Memory Number Order Game</title>
+</head>
+<body>
+  <button id="theme-toggle">Toggle Theme (Light)</button>
+  <h2>Login</h2>
+  <div class="controls">
+    <label>Username: <input type="text" id="usernameInput" placeholder="Enter username"></label>
+    <label>Password: <input type="password" id="passwordInput" placeholder="Enter password"></label>
+    <button id="loginBtn">Login</button>
+    <p>Don't have an account? <a href="register.html">Register here</a></p>
+  </div>
+
+<script>
+const usernameInput = document.getElementById('usernameInput');
+const passwordInput = document.getElementById('passwordInput');
+const loginBtn = document.getElementById('loginBtn');
+const themeToggle = document.getElementById('theme-toggle');
+
+// Theme toggle
+themeToggle.addEventListener('click', () => {
+  const currentTheme = document.documentElement.getAttribute('data-theme');
+  document.documentElement.setAttribute('data-theme', currentTheme === 'dark' ? 'light' : 'dark');
+  themeToggle.textContent = `Toggle Theme (${currentTheme === 'dark' ? 'Dark' : 'Light'})`;
+});
+
+// Redirect if already logged in
+if (localStorage.getItem('username')) {
+  window.location.href = 'index.html';
+}
+
+loginBtn.addEventListener('click', () => {
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value.trim();
+  if (!username || !password) {
+    alert('Please enter both username and password.');
+    return;
+  }
+
+  fetch('/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ username, password })
+  })
+  .then(res => {
+    if (!res.ok) throw new Error('Login failed');
+    return res.json();
+  })
+  .then(data => {
+    localStorage.setItem('username', username);
+    window.location.href = 'index.html';
+  })
+  .catch(err => {
+    alert('Login failed: ' + err.message);
+  });
+});
+</script>
+</body>
+</html>

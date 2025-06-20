@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <title>Profile - Memory Number Order Game</title>
+</head>
+<body>
+  <button id="theme-toggle">Toggle Theme (Light)</button>
+  <h2>User Profile</h2>
+  <div id="userInfo">
+    Logged in as: <span id="usernameDisplay"></span> | 
+    <a href="index.html">Back to Game</a> | 
+    <button id="logoutBtn">Logout</button>
+  </div>
+
+  <div class="profile-section">
+    <h3>Account Details</h3>
+    <div class="account-details">
+      <p><strong>Username:</strong> <span id="username"></span></p>
+      <p><strong>Password:</strong> 
+        <input type="password" id="password" readonly>
+        <button id="togglePassword" class="toggle-password">Show</button>
+      </p>
+    </div>
+  </div>
+
+  <div class="profile-section">
+    <h3>Raw Statistics</h3>
+    <div class="raw-stats">
+      <p><strong>Total Games Played:</strong> <span id="totalGames">0</span></p>
+      <p><strong>Total Time Played (s):</strong> <span id="totalTime">0</span></p>
+      <p><strong>Average Score:</strong> <span id="avgScore">0</span></p>
+      <p><strong>Average Success Rate:</strong> <span id="avgSuccessRate">0%</span></p>
+    </div>
+  </div>
+
+  <div class="profile-section">
+    <h3>Score History</h3>
+    <canvas id="scoreChart" height="100"></canvas>
+  </div>
+
+  <div class="profile-section">
+    <h3>Game History</h3>
+    <table id="gameHistoryTable">
+      <thead>
+        <tr>
+          <th data-sort="success">Success/Total <span class="sort-icon"></span></th>
+          <th data-sort="time">Time (s) <span class="sort-icon"></span></th>
+          <th data-sort="numbers">Numbers <span class="sort-icon"></span></th>
+          <th data-sort="autoHide">Auto-hide (ms) <span class="sort-icon"></span></th>
+          <th data-sort="score">Score <span class="sort-icon"></span></th>
+          <th data-sort="date">Date <span class="sort-icon"></span></th>
+        </tr>
+      </thead>
+      <tbody id="gameHistoryBody">
+        <tr><td colspan="6">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+
+<script>
+const usernameDisplay = document.getElementById('usernameDisplay');
+const usernameSpan = document.getElementById('username');
+const passwordInput = document.getElementById('password');
+const togglePassword = document.getElementById('togglePassword');
+const gameHistoryBody = document.getElementById('gameHistoryBody');
+const logoutBtn = document.getElementById('logoutBtn');
+const themeToggle = document.getElementById('theme-toggle');
+const totalGames = document.getElementById('totalGames');
+const totalTime = document.getElementById('totalTime');
+const avgScore = document.getElementById('avgScore');
+const avgSuccessRate = document.getElementById('avgSuccessRate');
+
+// Check login status
+if (!localStorage.getItem('username')) {
+  window.location.href = 'login.html';
+} else {
+  const username = localStorage.getItem('username');
+  usernameDisplay.textContent = username;
+  usernameSpan.textContent = username;
+}
+
+// Theme toggle
+themeToggle.addEventListener('click', () => {
+  const currentTheme = document.documentElement.getAttribute('data-theme');
+  document.documentElement.setAttribute('data-theme', currentTheme === 'dark' ? 'light' : 'dark');
+  themeToggle.textContent = `Toggle Theme (${currentTheme === 'dark' ? 'Dark' : 'Light'})`;
+});
+
+// Toggle password visibility
+togglePassword.addEventListener('click', () => {
+  const isHidden = passwordInput.type === 'password';
+  passwordInput.type = isHidden ? 'text' : 'password';
+  togglePassword.textContent = isHidden ? 'Hide' : 'Show';
+});
+
+// Fetch user data (password) and stats
+fetch('/stats', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({ username: localStorage.getItem('username') })
+})
+.then(res => {
+  if (!res.ok) throw new Error('Failed to load profile data');
+  return res.json();
+})
+.then(data => {
+  passwordInput.value = data.password || 'N/A';
+  const games = data.games || [];
+
+  // Update game history table
+  if (games.length === 0) {
+    gameHistoryBody.innerHTML = '<tr><td colspan="6">No games played yet...</td></tr>';
+  } else {
+    gameHistoryBody.innerHTML = games.map(game => `
+      <tr>
+        <td>${game.success}/${game.total}</td>
+        <td>${game.time}s</td>
+        <td>${game.numbers}</td>
+        <td>${game.autoHide}ms</td>
+        <td>${game.score}</td>
+        <td>${new Date(game.date).toLocaleDateString()}</td>
+      </tr>
+    `).join('');
+  }
+
+  // Create line chart
+  const ctx = document.getElementById('scoreChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: games.map((_, i) => `Game ${i + 1}`),
+      datasets: [{
+        label: 'Score',
+        data: games.map(game => game.score),
+        borderColor: '#4f46e5',
+        backgroundColor: 'rgba(79, 70, 229, 0.2)',
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: 'Score' } },
+        x: { title: { display: true, text: 'Game' } }
+      }
+    }
+  });
+
+  // Calculate and display raw statistics
+  totalGames.textContent = games.length;
+  totalTime.textContent = games.reduce((sum, game) => sum + game.time, 0);
+  avgScore.textContent = games.length ? (games.reduce((sum, game) => sum + game.score, 0) / games.length).toFixed(2) : 0;
+  avgSuccessRate.textContent = games.length ? ((games.reduce((sum, game) => sum + game.success / game.total, 0) / games.length) * 100).toFixed(2) + '%' : '0%';
+})
+.catch(err => {
+  gameHistoryBody.innerHTML = '<tr><td colspan="6">Failed to load game history.</td></tr>';
+  alert('Error: ' + err.message);
+});
+
+// Table sorting
+let sortDirection = {};
+document.querySelectorAll('#gameHistoryTable th').forEach(header => {
+  header.addEventListener('click', () => {
+    const sortKey = header.dataset.sort;
+    const isAscending = !sortDirection[sortKey];
+    sortDirection[sortKey] = isAscending;
+
+    // Update sort icons
+    document.querySelectorAll('.sort-icon').forEach(icon => icon.textContent = '');
+    header.querySelector('.sort-icon').textContent = isAscending ? '↑' : '↓';
+
+    // Fetch and sort data
+    fetch('/stats', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ username: localStorage.getItem('username') })
+    })
+    .then(res => res.json())
+    .then(data => {
+      const games = data.games || [];
+      games.sort((a, b) => {
+        let aValue = a[sortKey], bValue = b[sortKey];
+        if (sortKey === 'success') {
+          aValue = a.success / a.total;
+          bValue = b.success / b.total;
+        } else if (sortKey === 'date') {
+          aValue = new Date(a.date);
+          bValue = new Date(b.date);
+        }
+        return isAscending ? aValue - bValue : bValue - aValue;
+      });
+
+      gameHistoryBody.innerHTML = games.map(game => `
+        <tr>
+          <td>${game.success}/${game.total}</td>
+          <td>${game.time}s</td>
+          <td>${game.numbers}</td>
+          <td>${game.autoHide}ms</td>
+          <td>${game.score}</td>
+          <td>${new Date(game.date).toLocaleDateString()}</td>
+        </tr>
+      `).join('');
+    });
+  });
+});
+</script>
+</body>
+</html>
